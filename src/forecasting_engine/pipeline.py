@@ -1,0 +1,269 @@
+from __future__ import annotations
+
+import hashlib
+import math
+import random
+from collections import defaultdict
+from datetime import datetime, timedelta, timezone
+from typing import Any
+from urllib.parse import urlparse
+
+from forecasting_engine.models import ForecastSnapshot, SourceRecord, StructuredEvidenceObject
+from forecasting_engine.validation import validate_seo, validate_source_record
+
+
+def web_search_fetch(query: str, search_results: list[dict[str, str]]) -> list[SourceRecord]:
+    records: list[SourceRecord] = []
+    now = datetime.now(timezone.utc)
+    for idx, result in enumerate(search_results):
+        raw_text = f"{result.get('title', '')}\n{result.get('snippet', '')}".strip()
+        source_id = hashlib.sha256(f"{query}:{result.get('url', '')}:{idx}".encode()).hexdigest()[
+            :16
+        ]
+        payload: dict[str, Any] = {
+            "source_id": source_id,
+            "url": result["url"],
+            "publisher": result.get("publisher", urlparse(result["url"]).netloc),
+            "title": result.get("title", ""),
+            "retrieved_at": now.isoformat(),
+            "published_at": result.get("published_at"),
+            "extraction_notes": result.get("snippet", ""),
+            "credibility_flags": [],
+            "quotes": [],
+            "content_hash": hashlib.sha256(raw_text.encode()).hexdigest(),
+            "excerpt": raw_text[:500],
+            "archive_pointer": result.get("archive_pointer", ""),
+        }
+        records.append(validate_source_record(payload))
+    return records
+
+
+def sr_to_seo(
+    question_id: str,
+    source_records: list[SourceRecord],
+    category: str,
+    source_tier: str,
+    direction: int,
+    magnitude: str,
+    claim_type: str,
+    correction_of_event_id: str = "",
+) -> list[StructuredEvidenceObject]:
+    seos: list[StructuredEvidenceObject] = []
+    for source in source_records:
+        claim = (
+            f"{source.title}:{source.extraction_notes}:{question_id}:{category}:{direction}:"
+            f"{magnitude}:{claim_type}:{correction_of_event_id}"
+        )
+        event_id = hashlib.sha256(claim.encode()).hexdigest()[:20]
+        payload: dict[str, Any] = {
+            "event_id": event_id,
+            "question_id": question_id,
+            "timestamp": (source.published_at or source.retrieved_at).isoformat(),
+            "category": category,
+            "direction": direction,
+            "magnitude": magnitude,
+            "claim_type": claim_type,
+            "source_ids": [source.source_id],
+            "source_tier": source_tier,
+            "correction_of_event_id": correction_of_event_id,
+            "metadata": {
+                "url": source.url,
+                "publisher": source.publisher,
+                "content_hash": source.content_hash,
+                "archive_pointer": source.archive_pointer,
+            },
+        }
+        seos.append(validate_seo(payload))
+    return seos
+
+
+def dedupe_cluster(
+    seos: list[StructuredEvidenceObject],
+) -> tuple[list[StructuredEvidenceObject], dict[str, str]]:
+    clustered: dict[str, StructuredEvidenceObject] = {}
+    provenance: dict[str, str] = {}
+    for seo in sorted(seos, key=lambda e: e.timestamp):
+        key = (
+            f"{seo.question_id}|{seo.category}|{seo.direction}|{seo.magnitude}|"
+            f"{seo.claim_type}|{seo.correction_of_event_id}"
+        )
+        existing = clustered.get(key)
+        if existing is None:
+            clustered[key] = seo
+            provenance[seo.event_id] = seo.event_id
+            continue
+        merged_sources = sorted(set(existing.source_ids + seo.source_ids))
+        merged = StructuredEvidenceObject(
+            event_id=existing.event_id,
+            question_id=existing.question_id,
+            timestamp=min(existing.timestamp, seo.timestamp),
+            category=existing.category,
+            direction=existing.direction,
+            magnitude=existing.magnitude,
+            claim_type=existing.claim_type,
+            source_ids=merged_sources,
+            source_tier=existing.source_tier,
+            resolver_authority=existing.resolver_authority,
+            resolver_method=existing.resolver_method,
+            correction_of_event_id=existing.correction_of_event_id,
+            metadata=existing.metadata,
+        )
+        clustered[key] = merged
+        provenance[seo.event_id] = existing.event_id
+    return list(clustered.values()), provenance
+
+
+def route_to_questions(
+    seos: list[StructuredEvidenceObject], routing_map: dict[str, list[str]]
+) -> dict[str, list[StructuredEvidenceObject]]:
+    routed: dict[str, list[StructuredEvidenceObject]] = defaultdict(list)
+    for seo in seos:
+        for question_id, labels in routing_map.items():
+            if seo.question_id == question_id or seo.category in labels or seo.claim_type in labels:
+                routed[question_id].append(seo)
+    return dict(routed)
+
+
+def _logit(probability: float) -> float:
+    clipped = min(max(probability, 1e-6), 1 - 1e-6)
+    return math.log(clipped / (1 - clipped))
+
+
+def _inv_logit(logodds: float) -> float:
+    return 1 / (1 + math.exp(-logodds))
+
+
+def update_logodds(
+    question_id: str,
+    current_probability: float,
+    evidence: list[StructuredEvidenceObject],
+    weights: dict[str, Any],
+    last_update_at: datetime | None,
+    as_of: datetime,
+    historical_event_deltas: dict[str, float] | None = None,
+) -> ForecastSnapshot:
+    pre_logodds = _logit(current_probability)
+    reversals: list[str] = []
+    if last_update_at and as_of - last_update_at < timedelta(
+        hours=float(weights["cooldown_hours"])
+    ):
+        delta = 0.0
+    else:
+        delta_raw = 0.0
+        prior = historical_event_deltas or {}
+        for seo in evidence:
+            if seo.claim_type == "correction" and seo.correction_of_event_id:
+                delta_raw += -prior.get(seo.correction_of_event_id, 0.0)
+                reversals.append(seo.correction_of_event_id)
+                continue
+            base = float(weights["base_by_category"].get(seo.category, 0.0))
+            tier_mult = float(weights["source_tier_multiplier"].get(seo.source_tier, 0.5))
+            magnitude_mult = {"small": 1.0, "medium": 1.5, "large": 2.0}[seo.magnitude]
+            delta_raw += seo.direction * base * tier_mult * magnitude_mult
+        capped = max(min(delta_raw, float(weights["delta_cap"])), -float(weights["delta_cap"]))
+        delta = float(weights["saturation"]) * math.tanh(capped)
+    post = pre_logodds + delta
+    probability = _inv_logit(post)
+    return ForecastSnapshot(
+        question_id=question_id,
+        as_of=as_of,
+        probability=probability,
+        logodds=post,
+        pre_logodds=pre_logodds,
+        delta_logodds=delta,
+        config_version=str(weights["version"]),
+        evidence_ids=[item.event_id for item in evidence],
+        reversal_of_event_ids=reversals,
+    )
+
+
+def regime_update(
+    snapshot: ForecastSnapshot,
+    question_id: str,
+    regime_signals: dict[str, float],
+    regime_params: dict[str, Any],
+    enabled: bool,
+) -> ForecastSnapshot:
+    if not enabled:
+        return snapshot
+    weighted_signal = 0.0
+    for signal, weight in regime_params["weekly_signal_weights"].items():
+        weighted_signal += float(regime_signals.get(signal, 0.0)) * float(weight)
+    question_adj = float(regime_params["question_adjustments"].get(question_id, 0.0))
+    raw_adj = weighted_signal * question_adj
+    cap = float(regime_params["regime_cap"])
+    adjustment = max(min(raw_adj, cap), -cap)
+    adjusted_logodds = snapshot.logodds + adjustment
+    return ForecastSnapshot(
+        question_id=snapshot.question_id,
+        as_of=snapshot.as_of,
+        probability=_inv_logit(adjusted_logodds),
+        logodds=adjusted_logodds,
+        pre_logodds=snapshot.pre_logodds,
+        delta_logodds=snapshot.delta_logodds,
+        config_version=snapshot.config_version,
+        evidence_ids=snapshot.evidence_ids,
+        regime_adjustment=adjustment,
+        ablation_label=snapshot.ablation_label,
+        reversal_of_event_ids=snapshot.reversal_of_event_ids,
+    )
+
+
+def monte_carlo(
+    initial_price: float,
+    target_price: float,
+    mu: float,
+    sigma: float,
+    days: int,
+    runs: int,
+    seed: int,
+) -> float:
+    rng = random.Random(seed)
+    crossings = 0
+    dt = 1.0 / 252.0
+    for _ in range(runs):
+        price = initial_price
+        crossed = False
+        for _ in range(days):
+            shock = rng.gauss(0.0, 1.0)
+            growth = (mu - 0.5 * sigma**2) * dt + sigma * math.sqrt(dt) * shock
+            price *= math.exp(growth)
+            if price >= target_price:
+                crossed = True
+                break
+        if crossed:
+            crossings += 1
+    return crossings / runs
+
+
+def run_ablation_forecasts(
+    baseline: ForecastSnapshot,
+    question_id: str,
+    regime_signals: dict[str, float],
+    regime_params: dict[str, Any],
+    mc_probability: float | None = None,
+) -> dict[str, ForecastSnapshot]:
+    output = {
+        "baseline": ForecastSnapshot(**{**baseline.__dict__, "ablation_label": "baseline"}),
+    }
+    with_regime = regime_update(baseline, question_id, regime_signals, regime_params, enabled=True)
+    output["with_regime"] = ForecastSnapshot(
+        **{**with_regime.__dict__, "ablation_label": "+regime"}
+    )
+    if mc_probability is not None:
+        blended = min(max((with_regime.probability + mc_probability) / 2.0, 0.0), 1.0)
+        mc_logodds = _logit(blended)
+        output["with_regime_mc"] = ForecastSnapshot(
+            question_id=with_regime.question_id,
+            as_of=with_regime.as_of,
+            probability=blended,
+            logodds=mc_logodds,
+            pre_logodds=with_regime.pre_logodds,
+            delta_logodds=mc_logodds - with_regime.pre_logodds,
+            config_version=with_regime.config_version,
+            evidence_ids=with_regime.evidence_ids,
+            regime_adjustment=with_regime.regime_adjustment,
+            ablation_label="+regime+mc",
+            reversal_of_event_ids=with_regime.reversal_of_event_ids,
+        )
+    return output
