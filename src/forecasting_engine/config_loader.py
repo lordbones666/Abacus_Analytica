@@ -19,6 +19,7 @@ def load_config(config_dir: Path) -> dict[str, dict[str, Any]]:
         "weights": "weight_tables.v1.json",
         "regime": "regime_params.v1.json",
         "change_control": "change_control.json",
+        "base_rates": "base_rates.v1.json",
     }
     return {k: load_json(config_dir / v) for k, v in files.items()}
 

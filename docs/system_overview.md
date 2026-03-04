@@ -13,3 +13,6 @@ This repository implements a reproducible forecasting engine with the execution 
 Machine-readable discovery aids:
 - `repo_manifest.json`
 - `file_manifest.json`
+
+Additional methodology pack:
+- `docs/specs/` (12-topic Abacus forecasting playbook)

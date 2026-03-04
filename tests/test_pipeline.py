@@ -2,6 +2,7 @@ from datetime import datetime, timezone
 from typing import Any, cast
 
 from forecasting_engine.pipeline import (
+    apply_reference_prior,
     dedupe_cluster,
     run_ablation_forecasts,
     sr_to_seo,
@@ -44,6 +45,7 @@ def test_dedupe_prevents_double_counting() -> None:
         ],
     )
     seos = sr_to_seo("C1", srs, "security", "tier_1", 1, "small", "event")
+    assert seos[0].cluster_id
     clustered, provenance = dedupe_cluster(seos)
     assert len(clustered) == 1
     assert len(provenance) == 2
@@ -72,6 +74,7 @@ def test_update_logodds_bounds_and_caps() -> None:
     )
     assert 0.0 < snapshot.probability < 1.0
     assert abs(snapshot.delta_logodds) <= cast(float, WEIGHTS["saturation"])
+    assert abs(snapshot.delta_logodds) <= abs(snapshot.raw_delta_logodds)
 
 
 def test_correction_reversal_uses_prior_delta() -> None:
@@ -110,3 +113,11 @@ def test_ablation_outputs_default_set() -> None:
         mc_probability=0.55,
     )
     assert set(outputs.keys()) == {"baseline", "with_regime", "with_regime_mc"}
+    assert outputs["with_regime"].regime_entropy >= 0.0
+
+
+def test_apply_reference_prior_clips_bounds() -> None:
+    priors = {"key": 1.2}
+    value = apply_reference_prior("key", priors)
+    assert value < 1.0
+    assert apply_reference_prior("unknown", priors) == 0.5

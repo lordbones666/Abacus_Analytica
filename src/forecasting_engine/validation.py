@@ -39,6 +39,8 @@ def validate_question_object(payload: dict[str, Any]) -> QuestionObject:
             "resolution_authority",
             "resolution_method",
             "binary_criteria",
+            "event_definition",
+            "reference_class_key",
             "version",
         ],
     )
@@ -58,6 +60,8 @@ def validate_question_object(payload: dict[str, Any]) -> QuestionObject:
         resolution_authority=payload["resolution_authority"],
         resolution_method=payload["resolution_method"],
         binary_criteria=criteria,
+        event_definition=payload.get("event_definition", ""),
+        reference_class_key=payload.get("reference_class_key", ""),
         invalidation_conditions=payload.get("invalidation_conditions", []),
         domain=payload.get("domain", "general"),
         horizon=payload.get("horizon", "default"),
@@ -67,7 +71,14 @@ def validate_question_object(payload: dict[str, Any]) -> QuestionObject:
 
 def question_gate(payload: dict[str, Any]) -> tuple[bool, list[str]]:
     issues: list[str] = []
-    for key in ["resolution_authority", "resolution_method", "time_window", "binary_criteria"]:
+    for key in [
+        "resolution_authority",
+        "resolution_method",
+        "time_window",
+        "binary_criteria",
+        "event_definition",
+        "reference_class_key",
+    ]:
         if not payload.get(key):
             issues.append(f"missing_{key}")
 
@@ -150,5 +161,12 @@ def validate_seo(payload: dict[str, Any]) -> StructuredEvidenceObject:
         resolver_authority=payload.get("resolver_authority", ""),
         resolver_method=payload.get("resolver_method", ""),
         correction_of_event_id=payload.get("correction_of_event_id", ""),
+        cluster_id=payload.get("cluster_id", ""),
+        cluster_key_fields=list(payload.get("cluster_key_fields", [])),
+        key_version=payload.get("key_version", "v1"),
+        phi_version=payload.get("phi_version", "v1"),
+        revision_id=payload.get("revision_id", ""),
+        weight_raw=float(payload.get("weight_raw", 0.0)),
+        weight_effective=float(payload.get("weight_effective", 0.0)),
         metadata=payload.get("metadata", {}),
     )

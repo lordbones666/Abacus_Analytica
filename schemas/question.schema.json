@@ -9,6 +9,8 @@
     "resolution_authority",
     "resolution_method",
     "binary_criteria",
+    "event_definition",
+    "reference_class_key",
     "version"
   ],
   "properties": {
@@ -25,6 +27,8 @@
     },
     "resolution_authority": {"type": "string", "minLength": 1},
     "resolution_method": {"type": "string", "minLength": 1},
+    "event_definition": {"type": "string", "minLength": 1},
+    "reference_class_key": {"type": "string", "minLength": 1},
     "binary_criteria": {
       "type": "object",
       "required": ["yes_definition", "no_definition"],

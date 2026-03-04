@@ -20,6 +20,8 @@ class QuestionObject:
     resolution_authority: str
     resolution_method: str
     binary_criteria: dict[str, str]
+    event_definition: str = ""
+    reference_class_key: str = ""
     invalidation_conditions: list[str] = field(default_factory=list)
     domain: str = "general"
     horizon: str = "default"
@@ -56,6 +58,13 @@ class StructuredEvidenceObject:
     resolver_authority: str = ""
     resolver_method: str = ""
     correction_of_event_id: str = ""
+    cluster_id: str = ""
+    cluster_key_fields: list[str] = field(default_factory=list)
+    key_version: str = "v1"
+    phi_version: str = "v1"
+    revision_id: str = ""
+    weight_raw: float = 0.0
+    weight_effective: float = 0.0
     metadata: dict[str, Any] = field(default_factory=dict)
 
 
@@ -69,9 +78,13 @@ class ForecastSnapshot:
     delta_logodds: float
     config_version: str
     evidence_ids: list[str]
+    raw_delta_logodds: float = 0.0
     regime_adjustment: float = 0.0
+    regime_entropy: float = 0.0
     ablation_label: str = "baseline"
     reversal_of_event_ids: list[str] = field(default_factory=list)
+    model_version: str = "model-v1"
+    cal_version: str = "cal-none"
 
 
 @dataclass(frozen=True)

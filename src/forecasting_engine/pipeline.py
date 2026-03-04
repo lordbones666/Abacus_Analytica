@@ -47,9 +47,17 @@ def sr_to_seo(
     magnitude: str,
     claim_type: str,
     correction_of_event_id: str = "",
+    phi_version: str = "v1",
 ) -> list[StructuredEvidenceObject]:
     seos: list[StructuredEvidenceObject] = []
     for source in source_records:
+        key_fields = [
+            question_id,
+            category,
+            claim_type,
+            (source.published_at or source.retrieved_at).date().isoformat(),
+        ]
+        cluster_id = hashlib.sha256("|".join(key_fields).encode()).hexdigest()[:16]
         claim = (
             f"{source.title}:{source.extraction_notes}:{question_id}:{category}:{direction}:"
             f"{magnitude}:{claim_type}:{correction_of_event_id}"
@@ -66,6 +74,11 @@ def sr_to_seo(
             "source_ids": [source.source_id],
             "source_tier": source_tier,
             "correction_of_event_id": correction_of_event_id,
+            "cluster_id": cluster_id,
+            "cluster_key_fields": key_fields,
+            "key_version": "v1",
+            "phi_version": phi_version,
+            "revision_id": source.content_hash,
             "metadata": {
                 "url": source.url,
                 "publisher": source.publisher,
@@ -83,7 +96,7 @@ def dedupe_cluster(
     clustered: dict[str, StructuredEvidenceObject] = {}
     provenance: dict[str, str] = {}
     for seo in sorted(seos, key=lambda e: e.timestamp):
-        key = (
+        key = seo.cluster_id or (
             f"{seo.question_id}|{seo.category}|{seo.direction}|{seo.magnitude}|"
             f"{seo.claim_type}|{seo.correction_of_event_id}"
         )
@@ -106,6 +119,13 @@ def dedupe_cluster(
             resolver_authority=existing.resolver_authority,
             resolver_method=existing.resolver_method,
             correction_of_event_id=existing.correction_of_event_id,
+            cluster_id=existing.cluster_id,
+            cluster_key_fields=existing.cluster_key_fields,
+            key_version=existing.key_version,
+            phi_version=existing.phi_version,
+            revision_id=existing.revision_id,
+            weight_raw=existing.weight_raw,
+            weight_effective=existing.weight_effective,
             metadata=existing.metadata,
         )
         clustered[key] = merged
@@ -133,6 +153,21 @@ def _inv_logit(logodds: float) -> float:
     return 1 / (1 + math.exp(-logodds))
 
 
+def _entropy_simplex(values: list[float]) -> float:
+    entropy = 0.0
+    for value in values:
+        v = max(min(value, 1.0), 1e-12)
+        entropy += -v * math.log(v)
+    return entropy
+
+
+def apply_reference_prior(
+    reference_class_key: str, priors_table: dict[str, float], epsilon: float = 1e-3
+) -> float:
+    prior = float(priors_table.get(reference_class_key, 0.5))
+    return min(max(prior, epsilon), 1 - epsilon)
+
+
 def update_logodds(
     question_id: str,
     current_probability: float,
@@ -147,6 +182,7 @@ def update_logodds(
     if last_update_at and as_of - last_update_at < timedelta(
         hours=float(weights["cooldown_hours"])
     ):
+        delta_raw = 0.0
         delta = 0.0
     else:
         delta_raw = 0.0
@@ -171,6 +207,7 @@ def update_logodds(
         logodds=post,
         pre_logodds=pre_logodds,
         delta_logodds=delta,
+        raw_delta_logodds=delta_raw,
         config_version=str(weights["version"]),
         evidence_ids=[item.event_id for item in evidence],
         reversal_of_event_ids=reversals,
@@ -194,6 +231,10 @@ def regime_update(
     cap = float(regime_params["regime_cap"])
     adjustment = max(min(raw_adj, cap), -cap)
     adjusted_logodds = snapshot.logodds + adjustment
+
+    total = sum(abs(v) for v in regime_signals.values())
+    simplex = [abs(v) / total for v in regime_signals.values()] if total > 0 else [1.0]
+
     return ForecastSnapshot(
         question_id=snapshot.question_id,
         as_of=snapshot.as_of,
@@ -201,11 +242,15 @@ def regime_update(
         logodds=adjusted_logodds,
         pre_logodds=snapshot.pre_logodds,
         delta_logodds=snapshot.delta_logodds,
+        raw_delta_logodds=snapshot.raw_delta_logodds,
         config_version=snapshot.config_version,
         evidence_ids=snapshot.evidence_ids,
         regime_adjustment=adjustment,
+        regime_entropy=_entropy_simplex(simplex),
         ablation_label=snapshot.ablation_label,
         reversal_of_event_ids=snapshot.reversal_of_event_ids,
+        model_version=snapshot.model_version,
+        cal_version=snapshot.cal_version,
     )
 
 
@@ -262,8 +307,12 @@ def run_ablation_forecasts(
             delta_logodds=mc_logodds - with_regime.pre_logodds,
             config_version=with_regime.config_version,
             evidence_ids=with_regime.evidence_ids,
+            raw_delta_logodds=with_regime.raw_delta_logodds,
             regime_adjustment=with_regime.regime_adjustment,
+            regime_entropy=with_regime.regime_entropy,
             ablation_label="+regime+mc",
             reversal_of_event_ids=with_regime.reversal_of_event_ids,
+            model_version=with_regime.model_version,
+            cal_version=with_regime.cal_version,
         )
     return output

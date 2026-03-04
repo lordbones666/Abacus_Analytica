@@ -83,6 +83,30 @@
     "metadata": {
       "type": "object",
       "additionalProperties": true
+    },
+    "cluster_id": {
+      "type": "string"
+    },
+    "cluster_key_fields": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "key_version": {
+      "type": "string"
+    },
+    "phi_version": {
+      "type": "string"
+    },
+    "revision_id": {
+      "type": "string"
+    },
+    "weight_raw": {
+      "type": "number"
+    },
+    "weight_effective": {
+      "type": "number"
     }
   }
 }
