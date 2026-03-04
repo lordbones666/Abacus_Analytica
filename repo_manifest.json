@@ -1,0 +1,14 @@
+{
+  "core_engine": "src/forecasting_engine",
+  "entry_points": {
+    "pipeline": "src/forecasting_engine/pipeline.py",
+    "validation": "src/forecasting_engine/validation.py",
+    "models": "src/forecasting_engine/models.py",
+    "ledgers": "src/forecasting_engine/ledger.py",
+    "evaluation": "src/forecasting_engine/evaluation.py"
+  },
+  "config_dir": "config",
+  "schemas_dir": "schemas",
+  "docs_dir": "docs",
+  "wrapper_modules": ["pipeline", "ledger", "evaluation"]
+}

@@ -57,19 +57,26 @@ def replay_forecast(
     evidence_ledger: EvidenceLedger,
     question_id: str,
     as_of_iso: str,
+    ablation_label: str | None = None,
 ) -> dict[str, Any]:
     forecasts = [
         item
         for item in forecast_ledger.read_all()
         if item["question_id"] == question_id and item["as_of"] == as_of_iso
     ]
+    if ablation_label is not None:
+        forecasts = [item for item in forecasts if item.get("ablation_label") == ablation_label]
     if not forecasts:
-        msg = f"No forecast found for question={question_id} as_of={as_of_iso}"
+        msg = (
+            f"No forecast found for question={question_id} as_of={as_of_iso}"
+            if ablation_label is None
+            else (
+                f"No forecast found for question={question_id} as_of={as_of_iso} "
+                f"ablation_label={ablation_label}"
+            )
+        )
         raise KeyError(msg)
     forecast = forecasts[-1]
-    evidence = [
-        item
-        for item in evidence_ledger.read_all()
-        if item["event_id"] in set(forecast.get("evidence_ids", []))
-    ]
+    evidence_ids = set(forecast.get("evidence_ids", []))
+    evidence = [item for item in evidence_ledger.read_all() if item["event_id"] in evidence_ids]
     return {"forecast": forecast, "evidence": evidence}

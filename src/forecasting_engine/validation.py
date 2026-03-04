@@ -15,6 +15,9 @@ class ValidationError(ValueError):
     """Validation failure."""
 
 
+ALLOWED_SOURCE_TIERS = {"tier_1", "tier_2", "tier_3"}
+
+
 def _require(data: dict[str, Any], keys: list[str]) -> None:
     for key in keys:
         if key not in data or data[key] in (None, ""):
@@ -67,9 +70,19 @@ def question_gate(payload: dict[str, Any]) -> tuple[bool, list[str]]:
     for key in ["resolution_authority", "resolution_method", "time_window", "binary_criteria"]:
         if not payload.get(key):
             issues.append(f"missing_{key}")
+
     time_window = payload.get("time_window", {})
     if time_window and (not time_window.get("opens_at") or not time_window.get("closes_at")):
         issues.append("ambiguous_time_window")
+    elif time_window:
+        try:
+            opens_at = parse_datetime(str(time_window["opens_at"]))
+            closes_at = parse_datetime(str(time_window["closes_at"]))
+            if closes_at <= opens_at:
+                issues.append("invalid_time_window_order")
+        except (KeyError, TypeError, ValueError):
+            issues.append("ambiguous_time_window")
+
     criteria = payload.get("binary_criteria", {})
     if criteria and (not criteria.get("yes_definition") or not criteria.get("no_definition")):
         issues.append("incomplete_binary_criteria")
@@ -118,6 +131,9 @@ def validate_seo(payload: dict[str, Any]) -> StructuredEvidenceObject:
         raise ValidationError("direction must be -1, 0, or 1")
     if payload["magnitude"] not in {"small", "medium", "large"}:
         raise ValidationError("magnitude must be small|medium|large")
+    source_tier = str(payload["source_tier"])
+    if source_tier not in ALLOWED_SOURCE_TIERS:
+        raise ValidationError("source_tier must be tier_1|tier_2|tier_3")
     if not payload["source_ids"]:
         raise ValidationError("source_ids must include at least one source")
 
@@ -130,7 +146,7 @@ def validate_seo(payload: dict[str, Any]) -> StructuredEvidenceObject:
         magnitude=payload["magnitude"],
         claim_type=payload["claim_type"],
         source_ids=list(payload["source_ids"]),
-        source_tier=payload["source_tier"],
+        source_tier=source_tier,
         resolver_authority=payload.get("resolver_authority", ""),
         resolver_method=payload.get("resolver_method", ""),
         correction_of_event_id=payload.get("correction_of_event_id", ""),

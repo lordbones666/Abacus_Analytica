@@ -1,0 +1,22 @@
+[
+  {
+    "file": "src/forecasting_engine/pipeline.py",
+    "purpose": "SR ingest, SEO extraction, dedupe, routing, log-odds updates, regime updates, Monte Carlo, ablations"
+  },
+  {
+    "file": "src/forecasting_engine/models.py",
+    "purpose": "Dataclasses for QO, SR, SEO, ForecastSnapshot, ScoreRecord"
+  },
+  {
+    "file": "src/forecasting_engine/validation.py",
+    "purpose": "question_gate and schema-level validators"
+  },
+  {
+    "file": "src/forecasting_engine/ledger.py",
+    "purpose": "Evidence/forecast/score ledgers and replay"
+  },
+  {
+    "file": "src/forecasting_engine/evaluation.py",
+    "purpose": "Brier, calibration, temperature scaling, monitoring alerts, freeze protocol"
+  }
+]
