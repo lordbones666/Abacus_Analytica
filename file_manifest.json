@@ -8,6 +8,10 @@
     "purpose": "Add-on modules for range forecasts, OSINT/tactical signals, structural baselines, question compilation, causal event networks, surprise/misinfo filters, and market-macro regime helpers"
   },
   {
+    "file": "src/forecasting_engine/extensions/tetlock_module.py",
+    "purpose": "Universal Tetlock module: question factory, base rates, decomposition, evidence/update loop, causal propagation, simulation, sentiment, and dashboard scaffolding"
+  },
+  {
     "file": "src/forecasting_engine/policies/logodds.py",
     "purpose": "Pure log-odds update policy with invariants and artifacts"
   },

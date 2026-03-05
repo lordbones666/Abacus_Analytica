@@ -22,3 +22,4 @@ Additional methodology pack:
 - `docs/specs/` (12-topic Abacus forecasting playbook)
 
 - `docs/specs/13_extension_roadmap_geopolitical_macro.md` (numeric-range, tactical, structural, and macro bridge modules)
+- `docs/specs/14_universal_tetlock_module_v1.md` (universal question-to-dashboard superforecasting layer)
