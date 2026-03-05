@@ -4,6 +4,10 @@
     "purpose": "Orchestration over policy modules: SR ingest, SEO extraction, dedupe, routing, log-odds updates, regime updates, Monte Carlo, ablations"
   },
   {
+    "file": "src/forecasting_engine/extensions",
+    "purpose": "Add-on modules for range forecasts, OSINT/tactical signals, structural baselines, question compilation, causal event networks, surprise/misinfo filters, and market-macro regime helpers"
+  },
+  {
     "file": "src/forecasting_engine/policies/logodds.py",
     "purpose": "Pure log-odds update policy with invariants and artifacts"
   },

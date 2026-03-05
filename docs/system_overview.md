@@ -20,3 +20,5 @@ Machine-readable discovery aids:
 
 Additional methodology pack:
 - `docs/specs/` (12-topic Abacus forecasting playbook)
+
+- `docs/specs/13_extension_roadmap_geopolitical_macro.md` (numeric-range, tactical, structural, and macro bridge modules)

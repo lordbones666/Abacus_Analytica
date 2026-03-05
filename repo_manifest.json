@@ -6,12 +6,17 @@
     "validation": "src/forecasting_engine/validation.py",
     "models": "src/forecasting_engine/models.py",
     "ledgers": "src/forecasting_engine/ledger.py",
-    "evaluation": "src/forecasting_engine/evaluation.py"
+    "evaluation": "src/forecasting_engine/evaluation.py",
+    "extensions": "src/forecasting_engine/extensions"
   },
   "config_dir": "config",
   "algorithm_config_dir": "config/algorithms",
   "schemas_dir": "schemas",
   "algorithm_schemas_dir": "schemas/algorithms",
   "docs_dir": "docs",
-  "wrapper_modules": ["pipeline", "ledger", "evaluation"]
+  "wrapper_modules": [
+    "pipeline",
+    "ledger",
+    "evaluation"
+  ]
 }
