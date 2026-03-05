@@ -9,6 +9,14 @@ from typing import Any
 from urllib.parse import urlparse
 
 from forecasting_engine.models import ForecastSnapshot, SourceRecord, StructuredEvidenceObject
+from forecasting_engine.policies.dedupe import (
+    aggregate_cluster,
+    deterministic_cluster_id,
+    similarity_fingerprint,
+)
+from forecasting_engine.policies.dependency import DependencyTracker, dependency_safe_blend
+from forecasting_engine.policies.logodds import update_logodds_policy
+from forecasting_engine.policies.regime import apply_regime_offset
 from forecasting_engine.validation import validate_seo, validate_source_record
 
 
@@ -57,7 +65,10 @@ def sr_to_seo(
             claim_type,
             (source.published_at or source.retrieved_at).date().isoformat(),
         ]
-        cluster_id = hashlib.sha256("|".join(key_fields).encode()).hexdigest()[:16]
+        cluster_id = deterministic_cluster_id(key_fields)
+        fingerprint = similarity_fingerprint(
+            f"{source.title}:{source.extraction_notes}:{question_id}:{category}:{claim_type}"
+        )
         claim = (
             f"{source.title}:{source.extraction_notes}:{question_id}:{category}:{direction}:"
             f"{magnitude}:{claim_type}:{correction_of_event_id}"
@@ -84,6 +95,7 @@ def sr_to_seo(
                 "publisher": source.publisher,
                 "content_hash": source.content_hash,
                 "archive_pointer": source.archive_pointer,
+                **fingerprint,
             },
         }
         seos.append(validate_seo(payload))
@@ -153,18 +165,10 @@ def _inv_logit(logodds: float) -> float:
     return 1 / (1 + math.exp(-logodds))
 
 
-def _entropy_simplex(values: list[float]) -> float:
-    entropy = 0.0
-    for value in values:
-        v = max(min(value, 1.0), 1e-12)
-        entropy += -v * math.log(v)
-    return entropy
-
-
 def apply_reference_prior(
     reference_class_key: str, priors_table: dict[str, float], epsilon: float = 1e-3
 ) -> float:
-    prior = float(priors_table.get(reference_class_key, 0.5))
+    prior = float(priors_table.get(reference_class_key, priors_table.get("default", 0.5)))
     return min(max(prior, epsilon), 1 - epsilon)
 
 
@@ -179,38 +183,70 @@ def update_logodds(
 ) -> ForecastSnapshot:
     pre_logodds = _logit(current_probability)
     reversals: list[str] = []
-    if last_update_at and as_of - last_update_at < timedelta(
-        hours=float(weights["cooldown_hours"])
-    ):
-        delta_raw = 0.0
-        delta = 0.0
-    else:
-        delta_raw = 0.0
-        prior = historical_event_deltas or {}
-        for seo in evidence:
-            if seo.claim_type == "correction" and seo.correction_of_event_id:
-                delta_raw += -prior.get(seo.correction_of_event_id, 0.0)
-                reversals.append(seo.correction_of_event_id)
-                continue
-            base = float(weights["base_by_category"].get(seo.category, 0.0))
-            tier_mult = float(weights["source_tier_multiplier"].get(seo.source_tier, 0.5))
-            magnitude_mult = {"small": 1.0, "medium": 1.5, "large": 2.0}[seo.magnitude]
-            delta_raw += seo.direction * base * tier_mult * magnitude_mult
-        capped = max(min(delta_raw, float(weights["delta_cap"])), -float(weights["delta_cap"]))
-        delta = float(weights["saturation"]) * math.tanh(capped)
-    post = pre_logodds + delta
+    cooldown_active = bool(
+        last_update_at
+        and as_of - last_update_at < timedelta(hours=float(weights["cooldown_hours"]))
+    )
+
+    evidence_deltas: list[float] = []
+    cluster_artifacts: dict[str, dict[str, Any]] = {}
+    prior = historical_event_deltas or {}
+    now = as_of
+    for seo in evidence:
+        if seo.claim_type == "correction" and seo.correction_of_event_id:
+            delta = -prior.get(seo.correction_of_event_id, 0.0)
+            evidence_deltas.append(delta)
+            reversals.append(seo.correction_of_event_id)
+            continue
+        base = float(weights["base_by_category"].get(seo.category, 0.0))
+        tier_mult = float(weights["source_tier_multiplier"].get(seo.source_tier, 0.5))
+        magnitude_mult = {"small": 1.0, "medium": 1.5, "large": 2.0}[seo.magnitude]
+        raw_weight = seo.direction * base * tier_mult * magnitude_mult
+        cluster_data = aggregate_cluster(
+            [raw_weight],
+            c_max=float(weights["delta_cap"]),
+            tau_hours=float(weights["cooldown_hours"]),
+            last_seen_at=None,
+            now=now,
+        )
+        evidence_deltas.append(cluster_data["adjusted_cluster_sum"])
+        cluster_artifacts[seo.cluster_id or seo.event_id] = cluster_data
+
+    policy_cfg = {
+        "eta": float(weights.get("eta", 1.0)),
+        "cap": float(weights["delta_cap"]),
+        "saturation": float(weights["saturation"]),
+        "cooldown_hours": float(weights["cooldown_hours"]),
+    }
+    result = update_logodds_policy(pre_logodds, evidence_deltas, policy_cfg, cooldown_active)
+    post = float(result.value)
     probability = _inv_logit(post)
+
+    artifacts = {
+        "evidence": {
+            "raw_llr_sum": result.artifacts["raw_llr_sum"],
+            "cluster_sums": cluster_artifacts,
+            "cluster_delta_after_sat": result.artifacts["delta_after_saturation"],
+            "cooldown_multiplier": result.artifacts["cooldown_multiplier"],
+        },
+        "caps": {
+            "delta_cap_hit": bool(result.artifacts["delta_cap_hit"]),
+            "prob_clip_hit": probability in {1e-6, 1 - 1e-6},
+        },
+    }
+
     return ForecastSnapshot(
         question_id=question_id,
         as_of=as_of,
         probability=probability,
         logodds=post,
         pre_logodds=pre_logodds,
-        delta_logodds=delta,
-        raw_delta_logodds=delta_raw,
+        delta_logodds=float(result.artifacts["delta_after_saturation"]),
+        raw_delta_logodds=float(result.artifacts["raw_llr_sum"]),
         config_version=str(weights["version"]),
         evidence_ids=[item.event_id for item in evidence],
         reversal_of_event_ids=reversals,
+        artifacts=artifacts,
     )
 
 
@@ -223,18 +259,8 @@ def regime_update(
 ) -> ForecastSnapshot:
     if not enabled:
         return snapshot
-    weighted_signal = 0.0
-    for signal, weight in regime_params["weekly_signal_weights"].items():
-        weighted_signal += float(regime_signals.get(signal, 0.0)) * float(weight)
-    question_adj = float(regime_params["question_adjustments"].get(question_id, 0.0))
-    raw_adj = weighted_signal * question_adj
-    cap = float(regime_params["regime_cap"])
-    adjustment = max(min(raw_adj, cap), -cap)
-    adjusted_logodds = snapshot.logodds + adjustment
-
-    total = sum(abs(v) for v in regime_signals.values())
-    simplex = [abs(v) / total for v in regime_signals.values()] if total > 0 else [1.0]
-
+    result = apply_regime_offset(snapshot.logodds, question_id, regime_signals, regime_params)
+    adjusted_logodds = float(result.value)
     return ForecastSnapshot(
         question_id=snapshot.question_id,
         as_of=snapshot.as_of,
@@ -245,12 +271,20 @@ def regime_update(
         raw_delta_logodds=snapshot.raw_delta_logodds,
         config_version=snapshot.config_version,
         evidence_ids=snapshot.evidence_ids,
-        regime_adjustment=adjustment,
-        regime_entropy=_entropy_simplex(simplex),
+        regime_adjustment=float(result.artifacts["regime_adjustment"]),
+        regime_entropy=float(result.artifacts["regime_entropy"]),
         ablation_label=snapshot.ablation_label,
         reversal_of_event_ids=snapshot.reversal_of_event_ids,
         model_version=snapshot.model_version,
         cal_version=snapshot.cal_version,
+        artifacts={
+            **snapshot.artifacts,
+            "regime": {
+                "regime_post": result.artifacts["regime_post"],
+                "regime_adjustment": result.artifacts["regime_adjustment"],
+                "regime_cap_hit": result.artifacts["regime_cap_hit"],
+            },
+        },
     )
 
 
@@ -287,6 +321,10 @@ def run_ablation_forecasts(
     regime_signals: dict[str, float],
     regime_params: dict[str, Any],
     mc_probability: float | None = None,
+    baseline_features: set[str] | None = None,
+    mc_features: set[str] | None = None,
+    allow_feature_overlap: bool = False,
+    overlap_penalty: float = 0.15,
 ) -> dict[str, ForecastSnapshot]:
     output = {
         "baseline": ForecastSnapshot(**{**baseline.__dict__, "ablation_label": "baseline"}),
@@ -296,7 +334,17 @@ def run_ablation_forecasts(
         **{**with_regime.__dict__, "ablation_label": "+regime"}
     )
     if mc_probability is not None:
-        blended = min(max((with_regime.probability + mc_probability) / 2.0, 0.0), 1.0)
+        tracker = DependencyTracker()
+        tracker.declare_inputs_used("baseline", baseline_features or set())
+        tracker.declare_inputs_used("market_path", mc_features or set())
+        overlap = tracker.overlap("baseline", "market_path")
+        blended, dep_artifacts = dependency_safe_blend(
+            with_regime.probability,
+            mc_probability,
+            overlap,
+            allow_overlap=allow_feature_overlap,
+            overlap_penalty=overlap_penalty,
+        )
         mc_logodds = _logit(blended)
         output["with_regime_mc"] = ForecastSnapshot(
             question_id=with_regime.question_id,
@@ -314,5 +362,6 @@ def run_ablation_forecasts(
             reversal_of_event_ids=with_regime.reversal_of_event_ids,
             model_version=with_regime.model_version,
             cal_version=with_regime.cal_version,
+            artifacts={**with_regime.artifacts, "dependency": dep_artifacts},
         )
     return output

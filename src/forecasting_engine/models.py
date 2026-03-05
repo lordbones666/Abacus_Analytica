@@ -85,6 +85,7 @@ class ForecastSnapshot:
     reversal_of_event_ids: list[str] = field(default_factory=list)
     model_version: str = "model-v1"
     cal_version: str = "cal-none"
+    artifacts: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)

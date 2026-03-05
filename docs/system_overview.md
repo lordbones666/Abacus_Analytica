@@ -10,6 +10,10 @@ This repository implements a reproducible forecasting engine with the execution 
 6. Ledger persistence and replay (`EvidenceLedger`, `ForecastLedger`, `replay_forecast`)
 7. Scoring, calibration, and monitoring (`brier_score`, `fit_temperature_scaling`, `monitoring_alerts`)
 
+Web search note:
+- GPT/tooling performs retrieval.
+- `web_search_fetch` is an adapter that normalizes retrieved results into replayable Source Records.
+
 Machine-readable discovery aids:
 - `repo_manifest.json`
 - `file_manifest.json`

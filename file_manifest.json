@@ -1,7 +1,23 @@
 [
   {
     "file": "src/forecasting_engine/pipeline.py",
-    "purpose": "SR ingest, SEO extraction, dedupe, routing, log-odds updates, regime updates, Monte Carlo, ablations"
+    "purpose": "Orchestration over policy modules: SR ingest, SEO extraction, dedupe, routing, log-odds updates, regime updates, Monte Carlo, ablations"
+  },
+  {
+    "file": "src/forecasting_engine/policies/logodds.py",
+    "purpose": "Pure log-odds update policy with invariants and artifacts"
+  },
+  {
+    "file": "src/forecasting_engine/policies/dedupe.py",
+    "purpose": "Deterministic cluster IDs, fingerprinting, cluster aggregation"
+  },
+  {
+    "file": "src/forecasting_engine/policies/regime.py",
+    "purpose": "Pure regime offset policy with entropy/cap artifacts"
+  },
+  {
+    "file": "src/forecasting_engine/policies/dependency.py",
+    "purpose": "Dependency accounting to prevent cross-channel double counting"
   },
   {
     "file": "src/forecasting_engine/models.py",

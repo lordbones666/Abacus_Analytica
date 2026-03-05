@@ -4,6 +4,9 @@ import json
 from pathlib import Path
 from typing import Any, cast
 
+from forecasting_engine.policies.logodds import validate_cfg as validate_logodds_cfg
+from forecasting_engine.policies.regime import validate_cfg as validate_regime_cfg
+
 
 def load_json(path: Path) -> dict[str, Any]:
     with path.open("r", encoding="utf-8") as f:
@@ -22,6 +25,24 @@ def load_config(config_dir: Path) -> dict[str, dict[str, Any]]:
         "base_rates": "base_rates.v1.json",
     }
     return {k: load_json(config_dir / v) for k, v in files.items()}
+
+
+def load_algorithm_defaults(config_dir: Path) -> dict[str, dict[str, Any]]:
+    files = {
+        "logodds": "algorithms/logodds.default.v1.json",
+        "dedupe": "algorithms/dedupe.default.v1.json",
+        "regime": "algorithms/regime.default.v1.json",
+        "calibration": "algorithms/calibration.default.v1.json",
+    }
+    return {k: load_json(config_dir / v) for k, v in files.items()}
+
+
+def validate_algorithm_defaults(defaults: dict[str, dict[str, Any]]) -> None:
+    logodds_errors = validate_logodds_cfg(defaults["logodds"])
+    regime_errors = validate_regime_cfg(defaults["regime"])
+    if logodds_errors or regime_errors:
+        errors = logodds_errors + regime_errors
+        raise ValueError(f"Algorithm defaults failed invariants: {errors}")
 
 
 def validate_change_control(change: dict[str, Any]) -> None:
