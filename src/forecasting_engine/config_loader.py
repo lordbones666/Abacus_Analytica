@@ -37,6 +37,14 @@ def load_algorithm_defaults(config_dir: Path) -> dict[str, dict[str, Any]]:
     return {k: load_json(config_dir / v) for k, v in files.items()}
 
 
+def load_simulation_defaults(config_dir: Path) -> dict[str, dict[str, Any]]:
+    files = {
+        "framework": "simulation/framework.default.v1.json",
+        "domains": "simulation/domains.default.v1.json",
+    }
+    return {k: load_json(config_dir / v) for k, v in files.items()}
+
+
 def validate_algorithm_defaults(defaults: dict[str, dict[str, Any]]) -> None:
     logodds_errors = validate_logodds_cfg(defaults["logodds"])
     regime_errors = validate_regime_cfg(defaults["regime"])
