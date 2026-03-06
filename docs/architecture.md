@@ -17,3 +17,8 @@ Replay uses timestamped ledger rows plus source snapshots (`content_hash`, `exce
 Governance:
 - Config change control requires version bump + rationale + expected impact + replay diff.
 - Drift monitoring can trigger freeze protocol and aggressiveness reduction.
+
+
+## Simulation Layer (additive)
+
+A new `src/forecasting_engine/simulation/` package extends existing policies/extensions with explicit simulation contracts, deterministic seeded execution, and bridge adapters to evidence + ledger pathways. This layer is additive and does not replace the baseline pipeline.
