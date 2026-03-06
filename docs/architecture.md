@@ -22,3 +22,7 @@ Governance:
 ## Simulation Layer (additive)
 
 A new `src/forecasting_engine/simulation/` package extends existing policies/extensions with explicit simulation contracts, deterministic seeded execution, and bridge adapters to evidence + ledger pathways. This layer is additive and does not replace the baseline pipeline.
+
+
+## Decision Lab Phase 2 Additions
+Phase 2 layers are additive: `scenario/*`, `portfolio/*`, `dashboard/*`, and `automation/*` plus explicit ledgers for scenarios, simulation runs, and portfolios. The orchestration-policy split remains unchanged.

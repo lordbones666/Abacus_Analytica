@@ -67,3 +67,24 @@ def validate_change_control(change: dict[str, Any]) -> None:
         raise ValueError(f"Missing change control fields: {', '.join(missing)}")
     if change["old_version"] == change["new_version"]:
         raise ValueError("new_version must differ from old_version")
+
+
+def load_scenario_defaults(config_dir: Path) -> dict[str, dict[str, Any]]:
+    files = {
+        "templates": "scenario/templates.default.v1.json",
+    }
+    return {k: load_json(config_dir / v) for k, v in files.items()}
+
+
+def load_portfolio_defaults(config_dir: Path) -> dict[str, dict[str, Any]]:
+    files = {
+        "defaults": "portfolio/defaults.v1.json",
+    }
+    return {k: load_json(config_dir / v) for k, v in files.items()}
+
+
+def load_automation_defaults(config_dir: Path) -> dict[str, dict[str, Any]]:
+    files = {
+        "triage": "automation/triage.default.v1.json",
+    }
+    return {k: load_json(config_dir / v) for k, v in files.items()}

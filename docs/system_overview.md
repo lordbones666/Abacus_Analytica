@@ -24,3 +24,7 @@ Additional methodology pack:
 - `docs/specs/13_extension_roadmap_geopolitical_macro.md` (numeric-range, tactical, structural, and macro bridge modules)
 - `docs/specs/14_universal_tetlock_module_v1.md` (universal question-to-dashboard superforecasting layer)
 - `docs/specs/15_high_leverage_modules_pack.md` (question compiler, numeric, timeseries, regime, dependency, decay, source memory, backtests, surprise triggers, valuation)
+
+
+## Decision Lab Phase 2
+The system now includes formal scenario compilation, simulation run provenance, portfolio risk summaries, regime/state summaries, and deterministic rerun triage scaffolding.

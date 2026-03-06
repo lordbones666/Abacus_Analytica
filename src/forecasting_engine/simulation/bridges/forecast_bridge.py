@@ -12,6 +12,7 @@ def simulation_to_evidence(
     question_id: str,
     category: str,
     source_tier: str = "tier2",
+    run_id: str | None = None,
 ) -> StructuredEvidenceObject:
     event_key = f"{simulation.simulator}:{simulation.context.scenario_id}:{question_id}:{simulation.context.as_of.isoformat()}"
     event_id = hashlib.sha256(event_key.encode()).hexdigest()[:20]
@@ -33,5 +34,6 @@ def simulation_to_evidence(
             "config_version": simulation.context.config_version,
             "seed": simulation.context.seed,
             "metrics": simulation.metrics,
+            "run_id": run_id,
         },
     )
