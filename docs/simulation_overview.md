@@ -44,3 +44,7 @@ All stochastic engines route through explicit seeded PRNG flows.
 ## Known Scaffold Limits
 
 Domain modules are intentionally reduced-form and not full structural models; they expose explicit assumptions and parameters for iterative hardening.
+
+
+## Phase 2 Provenance Integration
+Simulation outputs are now expected to map into a simulation run record with deterministic run identifiers, evidence snapshot hash, regime snapshot, and simulator/config version metadata.
